@@ -2,9 +2,10 @@ import gradio as gr
 import vtracer
 import os
 import shutil
-import tempfile
 import xml.etree.ElementTree as ET
 import re
+from datetime import datetime
+from pathlib import Path
 
 # Helper to estimate area of a path by bounding box
 def _path_area(path_data):
@@ -50,7 +51,6 @@ def remove_largest_path(svg_file):
         parent.remove(largest)
         tree.write(svg_file)
 
-# Convert a single image to SVG and return path
 
 def convert_image(image_path, output_dir, remove_bg=False):
     base = os.path.splitext(os.path.basename(image_path))[0]
@@ -62,11 +62,13 @@ def convert_image(image_path, output_dir, remove_bg=False):
 
 
 def make_preview_html(original, converted):
-    """Return HTML snippet showing original and converted images."""
+    """Return HTML snippet showing original and converted images using Gradio's file serving."""
     return (
-        f'<div style="display:flex;gap:10px;margin-bottom:1em">'
-        f'<div><p>Original</p><img src="file={original}" style="max-width:200px"></div>'
-        f'<div><p>Converted</p><img src="file={converted}" style="max-width:200px"></div>'
+        f'<div style="display:flex;gap:10px;margin-bottom:1em;border:1px solid #ddd;padding:10px;border-radius:5px">'
+        f'<div style="text-align:center"><p><strong>Original</strong></p>'
+        f'<img src="/gradio_api/file={original}" style="max-width:200px;max-height:200px;border:1px solid #ccc"></div>'
+        f'<div style="text-align:center"><p><strong>Converted SVG</strong></p>'
+        f'<img src="/gradio_api/file={converted}" style="max-width:200px;max-height:200px;border:1px solid #ccc"></div>'
         f'</div>'
     )
 
@@ -74,47 +76,94 @@ def make_preview_html(original, converted):
 def convert_images_to_svgs(files, remove_bg=False):
     """Convert uploaded images to SVG and return file paths and preview HTML."""
     if not files:
-        return [], ""
+        return [], "<p>No files uploaded.</p>"
 
-    output_dir = tempfile.mkdtemp()
+    # 作業ディレクトリ内にassetディレクトリを作成
+    assets_dir = Path.cwd() / "assets"
+    assets_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = assets_dir / f"svg_conversion_{timestamp}"
+    output_dir.mkdir(exist_ok=True)
+    
     svg_paths = []
     previews = []
-    for file_obj in files:
+    
+    for i, file_obj in enumerate(files):
         if hasattr(file_obj, 'name'):
             path = file_obj.name
         else:
             path = file_obj
-        # copy original file to output directory so it persists for preview
-        orig_copy = os.path.join(output_dir, os.path.basename(path))
+            
+        # ファイル名を簡素化
+        ext = os.path.splitext(path)[1]
+        simple_name = f"input_{i+1}{ext}"
+        orig_copy = output_dir / simple_name
+        
         try:
             shutil.copy(path, orig_copy)
-        except Exception:
-            orig_copy = path
-        svg_path = convert_image(path, output_dir, remove_bg=remove_bg)
+        except Exception as e:
+            print(f"Failed to copy {path}: {e}")
+            continue
+            
+        # SVGに変換
+        svg_path = convert_image(str(orig_copy), str(output_dir), remove_bg=remove_bg)
         svg_paths.append(svg_path)
-        previews.append(make_preview_html(orig_copy, svg_path))
+        
+        # プレビュー作成 - 相対パスを使用
+        rel_orig = os.path.relpath(orig_copy, Path.cwd())
+        rel_svg = os.path.relpath(svg_path, Path.cwd())
+        preview_html = make_preview_html(rel_orig, rel_svg)
+        previews.append(preview_html)
 
-    preview_html = "\n".join(previews)
-    return svg_paths, preview_html
+    if not previews:
+        return [], "<p>No files were successfully processed.</p>"
+    
+    combined_preview = "<div>" + "\n".join(previews) + "</div>"
+    return svg_paths, combined_preview
 
 
 def build_app():
-    with gr.Blocks() as demo:
-        gr.Markdown("## Image to SVG Converter")
-        gr.Markdown("Upload multiple images and download converted SVG files.")
+    # assetsディレクトリを静的パスとして設定
+    assets_path = Path.cwd() / "assets"
+    assets_path.mkdir(exist_ok=True)
+    gr.set_static_paths(paths=[assets_path])
+    
+    with gr.Blocks(title="Image to SVG Converter") as demo:
+        gr.Markdown("# Image to SVG Converter")
+        gr.Markdown("Upload multiple images and convert them to SVG format. Optionally remove the largest element (usually background).")
+        
         with gr.Row():
-            inp = gr.File(file_count="multiple", label="Input Images")
-            remove_bg = gr.Checkbox(label="Remove largest element", value=False)
-        out_files = gr.Files(label="Converted SVGs")
-        preview = gr.HTML()
-        btn = gr.Button("Convert")
-        btn.click(fn=convert_images_to_svgs, inputs=[inp, remove_bg], outputs=[out_files, preview])
+            with gr.Column():
+                inp = gr.File(
+                    file_count="multiple", 
+                    label="Upload Images",
+                    file_types=["image"]
+                )
+                remove_bg = gr.Checkbox(
+                    label="Remove largest element (background removal)", 
+                    value=False
+                )
+                btn = gr.Button("Convert to SVG", variant="primary")
+            
+        with gr.Row():
+            out_files = gr.Files(label="Download Converted SVG Files")
+            
+        with gr.Row():
+            preview = gr.HTML(label="Preview")
+        
+        btn.click(
+            fn=convert_images_to_svgs, 
+            inputs=[inp, remove_bg], 
+            outputs=[out_files, preview]
+        )
+        
     return demo
 
 
 def main():
     demo = build_app()
-    demo.launch()
+    demo.launch(show_error=True)
 
 
 if __name__ == "__main__":
