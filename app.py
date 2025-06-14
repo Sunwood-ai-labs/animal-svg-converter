@@ -64,8 +64,8 @@ def make_preview_html(original, converted):
     """Return HTML snippet showing original and converted images."""
     return (
         f'<div style="display:flex;gap:10px;margin-bottom:1em">'
-        f'<div><p>Original</p><img src="file://{original}" style="max-width:200px"></div>'
-        f'<div><p>Converted</p><img src="file://{converted}" style="max-width:200px"></div>'
+        f'<div><p>Original</p><img src="file={original}" style="max-width:200px"></div>'
+        f'<div><p>Converted</p><img src="file={converted}" style="max-width:200px"></div>'
         f'</div>'
     )
 
