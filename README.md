@@ -1,6 +1,8 @@
 # Animal SVG Converter
 
 A simple Gradio app to convert images to SVG using vtracer.
+It can optionally remove the largest element from each SVG (useful for
+removing background rectangles) and provides a preview of the conversion.
 
 ## Usage
 
