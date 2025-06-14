@@ -1,6 +1,7 @@
 import gradio as gr
 import vtracer
 import os
+import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 import re
@@ -83,9 +84,15 @@ def convert_images_to_svgs(files, remove_bg=False):
             path = file_obj.name
         else:
             path = file_obj
+        # copy original file to output directory so it persists for preview
+        orig_copy = os.path.join(output_dir, os.path.basename(path))
+        try:
+            shutil.copy(path, orig_copy)
+        except Exception:
+            orig_copy = path
         svg_path = convert_image(path, output_dir, remove_bg=remove_bg)
         svg_paths.append(svg_path)
-        previews.append(make_preview_html(path, svg_path))
+        previews.append(make_preview_html(orig_copy, svg_path))
 
     preview_html = "\n".join(previews)
     return svg_paths, preview_html
