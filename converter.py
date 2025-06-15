@@ -1,31 +1,5 @@
 import base64
-from litellm import completion
-def suggest_filename_with_llm(image_path):
-    """
-    画像ファイルからLLM（Gemini）で英語のユニークなファイル名を提案する
-    """
-    try:
-        with open(image_path, "rb") as f:
-            img_bytes = f.read()
-        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-        prompt = (
-            "You are an assistant that generates unique, short, descriptive English file names for icon images. "
-            "Given the following icon image (base64-encoded), suggest a unique English file name (no extension, no spaces, use only a-z, 0-9, hyphens or underscores):\n"
-            f"{img_b64}\n"
-            "File name:"
-        )
-        response = completion(
-            model="gemini/gemini-2.5-flash-preview-05-20",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        # レスポンスからファイル名部分のみ抽出
-        name = response["choices"][0]["message"]["content"].strip()
-        # 拡張子やスペースを除去
-        name = name.split(".")[0].replace(" ", "_")
-        return name
-    except Exception as e:
-        print(f"LLM filename suggestion failed: {e}")
-        return None
+from llm_utils import suggest_filename_with_llm
 import os
 import os
 import shutil
