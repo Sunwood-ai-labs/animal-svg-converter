@@ -1,2 +1,4 @@
 gradio
 vtracer
+litellm
+python-dotenv
