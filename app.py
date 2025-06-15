@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 import re
 from datetime import datetime
 from pathlib import Path
+from PIL import Image
+import numpy as np
 
 # Helper to estimate area of a path by bounding box
 def _path_area(path_data):
@@ -15,6 +17,39 @@ def _path_area(path_data):
     xs = [float(x) for x, _ in coords]
     ys = [float(y) for _, y in coords]
     return (max(xs) - min(xs)) * (max(ys) - min(ys))
+
+
+def crop_image_whitespace(image_path, output_path):
+    """Remove whitespace/margins from image by cropping to content bounds."""
+    try:
+        with Image.open(image_path) as img:
+            img_array = np.array(img)
+            
+            if len(img_array.shape) == 3:
+                gray = np.mean(img_array, axis=2)
+            else:
+                gray = img_array
+            
+            threshold = np.mean(gray) * 0.95
+            mask = gray < threshold
+            
+            rows = np.any(mask, axis=1)
+            cols = np.any(mask, axis=0)
+            
+            if np.any(rows) and np.any(cols):
+                rmin, rmax = np.where(rows)[0][[0, -1]]
+                cmin, cmax = np.where(cols)[0][[0, -1]]
+                
+                cropped = img.crop((cmin, rmin, cmax + 1, rmax + 1))
+                cropped.save(output_path)
+                return output_path
+            else:
+                img.save(output_path)
+                return output_path
+    except Exception as e:
+        print(f"Error cropping image {image_path}: {e}")
+        shutil.copy(image_path, output_path)
+        return output_path
 
 
 def remove_largest_path(svg_file):
@@ -91,12 +126,12 @@ def convert_image(
     return svg_path
 
 
-def make_preview_html(original, converted):
-    """Return HTML snippet showing original and converted images using Gradio's file serving."""
+def make_preview_html(input_image, converted):
+    """Return HTML snippet showing input and converted images using Gradio's file serving."""
     return (
         f'<div style="display:flex;gap:10px;margin-bottom:1em;border:1px solid #ddd;padding:10px;border-radius:5px">'
-        f'<div style="text-align:center"><p><strong>Original</strong></p>'
-        f'<img src="/gradio_api/file={original}" style="max-width:200px;max-height:200px;border:1px solid #ccc"></div>'
+        f'<div style="text-align:center"><p><strong>Input</strong></p>'
+        f'<img src="/gradio_api/file={input_image}" style="max-width:200px;max-height:200px;border:1px solid #ccc"></div>'
         f'<div style="text-align:center"><p><strong>Converted SVG</strong></p>'
         f'<img src="/gradio_api/file={converted}" style="max-width:200px;max-height:200px;border:1px solid #ccc"></div>'
         f'</div>'
@@ -106,6 +141,7 @@ def make_preview_html(original, converted):
 def convert_images_to_svgs(
     files,
     remove_bg=False,
+    crop_whitespace=True,
     colormode="color",
     hierarchical="stacked",
     mode="spline",
@@ -149,10 +185,21 @@ def convert_images_to_svgs(
         except Exception as e:
             print(f"Failed to copy {path}: {e}")
             continue
+        
+        # 余白を削除してクロップ（オプション）
+        if crop_whitespace:
+            cropped_name = f"cropped_{i+1}{ext}"
+            cropped_path = output_dir / cropped_name
+            crop_image_whitespace(str(orig_copy), str(cropped_path))
+            input_for_svg = str(cropped_path)
+            preview_image = cropped_path
+        else:
+            input_for_svg = str(orig_copy)
+            preview_image = orig_copy
             
         # SVGに変換
         svg_path = convert_image(
-            str(orig_copy),
+            input_for_svg,
             str(output_dir),
             remove_bg=remove_bg,
             colormode=colormode,
@@ -170,9 +217,9 @@ def convert_images_to_svgs(
         svg_paths.append(svg_path)
         
         # プレビュー作成 - 相対パスを使用
-        rel_orig = os.path.relpath(orig_copy, Path.cwd())
+        rel_preview = os.path.relpath(preview_image, Path.cwd())
         rel_svg = os.path.relpath(svg_path, Path.cwd())
-        preview_html = make_preview_html(rel_orig, rel_svg)
+        preview_html = make_preview_html(rel_preview, rel_svg)
         previews.append(preview_html)
 
     if not previews:
@@ -202,6 +249,10 @@ def build_app():
                 remove_bg = gr.Checkbox(
                     label="Remove largest element (background removal)",
                     value=False
+                )
+                crop_whitespace = gr.Checkbox(
+                    label="Crop whitespace/margins",
+                    value=True
                 )
                 colormode = gr.Radio(
                     ["color", "binary"],
@@ -287,6 +338,7 @@ def build_app():
             inputs=[
                 inp,
                 remove_bg,
+                crop_whitespace,
                 colormode,
                 hierarchical,
                 mode_option,
